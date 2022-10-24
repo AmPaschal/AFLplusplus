@@ -85,7 +85,9 @@ typedef struct afl_forkserver {
 
   s32 fsrv_pid,                         /* PID of the fork server           */
       child_pid,                        /* PID of the fuzzed program        */
+      pd_pid,                           /* PID of PacketDrill */
       child_status,                     /* waitpid result for the child     */
+      timeout_pending,                  /* We set this whenever we start a timeout and need to kill the child at the timeout's expiration */
       out_dir_fd;                       /* FD of the lock file              */
 
   s32 out_fd,                           /* Persistent fd for fsrv->out_file */
@@ -203,6 +205,7 @@ fsrv_run_result_t afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
 void              afl_fsrv_killall(void);
 void              afl_fsrv_deinit(afl_forkserver_t *fsrv);
 void              afl_fsrv_kill(afl_forkserver_t *fsrv);
+void handle_timeout();
 
 #ifdef __APPLE__
   #define MSG_FORK_ON_APPLE                                                    \

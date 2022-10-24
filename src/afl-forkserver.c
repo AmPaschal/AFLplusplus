@@ -1267,6 +1267,34 @@ void afl_fsrv_kill(afl_forkserver_t *fsrv) {
 
 }
 
+void handle_timeout_fsrv(afl_forkserver_t *fsrv) {
+
+  if (fsrv->timeout_pending && fsrv->child_pid) {
+    /* If there was no response from forkserver after timeout seconds,
+    we kill the child. The forkserver should inform us afterwards */
+
+    s32 tmp_pid = fsrv->child_pid;
+    if (tmp_pid > 0) {
+
+      kill(tmp_pid, fsrv->kill_signal);
+      fsrv->child_pid = -1;
+
+    }
+
+    fsrv->last_run_timed_out = 1;
+  }
+}
+
+
+void handle_timeout() {
+
+  LIST_FOREACH(&fsrv_list, afl_forkserver_t, {
+
+    handle_timeout_fsrv(el);
+
+  });
+}
+
 /* Get the map size from the target forkserver */
 
 u32 afl_fsrv_get_mapsize(afl_forkserver_t *fsrv, char **argv,
@@ -1534,13 +1562,64 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
 
   }
 
-  exec_ms = read_s32_timed(fsrv->fsrv_st_fd, &fsrv->child_status, timeout,
-                           stop_soon_p);
+  struct itimerval it;
 
-  if (exec_ms > timeout) {
+  it.it_value.tv_sec = (timeout / 1000);
+  it.it_value.tv_usec = (timeout % 1000) * 1000;
 
-    /* If there was no response from forkserver after timeout seconds,
-    we kill the child. The forkserver should inform us afterwards */
+  setitimer(ITIMER_REAL, &it, NULL);
+
+  pid_t pd_pid = fork();
+  if (pd_pid==0) { /* child process */
+      
+      static char *argv[]={"/home/pamusuo/research/ampaschal-packetdrill/gtests/net/packetdrill/packetdrill",
+      "--so_filename=/home/pamusuo/research/rtos-fuzzing/rtos-bridge/libfreertos-bridge.so",
+      "--local_ip=125.0.75.0",
+      "--non_fatal=packet",
+      "--tolerance_usecs=1000000",
+      "/home/pamusuo/research/ampaschal-packetdrill/gtests/net/tcp/blocking/blocking-accept.pkt", NULL};
+      res = execv("/home/pamusuo/research/ampaschal-packetdrill/gtests/net/packetdrill/packetdrill", argv);
+      if (res != 0) {
+        printf("An error occurred executing with errno %d\n", errno);
+      }
+      exit(127); /* only if execv fails */
+  }
+
+  fsrv->pd_pid = pd_pid;
+
+  restart_read:
+  res = read(fsrv->fsrv_st_fd, &fsrv->child_status, 4);
+
+  if (likely(res == 4)) {  // for speed we put this first
+
+    getitimer(ITIMER_REAL, &it);
+    exec_ms = (u64) timeout - (it.it_value.tv_sec * 1000 +
+                              it.it_value.tv_usec / 1000);
+
+  } else if (unlikely(res == -1 && errno == EINTR)) {
+
+    goto restart_read;
+
+  } else if (unlikely(res < 4)) {
+
+    exec_ms = 0;
+
+  }
+
+  /* We disarm the timer at this point */
+  it.it_value.tv_sec = 0;
+  it.it_value.tv_usec = 0;
+
+  setitimer(ITIMER_REAL, &it, NULL);
+
+
+  /* exec_ms = read_s32_timed(fsrv->fsrv_st_fd, &fsrv->child_status, timeout,
+                           stop_soon_p); */
+
+  /*if (exec_ms > timeout) {
+
+    If there was no response from forkserver after timeout seconds,
+    we kill the child. The forkserver should inform us afterwards 
 
     s32 tmp_pid = fsrv->child_pid;
     if (tmp_pid > 0) {
@@ -1553,7 +1632,7 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
     fsrv->last_run_timed_out = 1;
     if (read(fsrv->fsrv_st_fd, &fsrv->child_status, 4) < 4) { exec_ms = 0; }
 
-  }
+  } */
 
   if (!exec_ms) {
 

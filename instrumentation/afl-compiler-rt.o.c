@@ -1204,6 +1204,8 @@ static void __afl_start_forkserver(void) {
 
     }
 
+    // AFL forkserver waits at this point for an execution to complete
+
     if (waitpid(child_pid, &status, is_persistent ? WUNTRACED : 0) < 0) {
 
       write_error("waitpid");

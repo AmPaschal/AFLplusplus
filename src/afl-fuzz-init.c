@@ -26,6 +26,7 @@
 #include "afl-fuzz.h"
 #include <limits.h>
 #include "cmplog.h"
+#include "forkserver.h"
 
 #ifdef HAVE_AFFINITY
 
@@ -2554,6 +2555,17 @@ static void handle_skipreq(int sig) {
 
 }
 
+
+
+/* Handle timeout (SIGALRM). */
+
+static void handle_timeout_signal(int sig) {
+
+  (void)sig;
+  handle_timeout();
+
+}
+
 /* Setup shared map for fuzzing with input via sharedmem */
 
 void setup_testcase_shmem(afl_state_t *afl) {
@@ -2913,6 +2925,11 @@ void setup_signal_handlers(void) {
   sigaction(SIGHUP, &sa, NULL);
   sigaction(SIGINT, &sa, NULL);
   sigaction(SIGTERM, &sa, NULL);
+
+  /* Exec timeout notifications. */
+
+  sa.sa_handler = handle_timeout_signal;
+  sigaction(SIGALRM, &sa, NULL);
 
   /* Window resize */
 
