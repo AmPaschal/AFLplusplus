@@ -1569,15 +1569,19 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
 
   setitimer(ITIMER_REAL, &it, NULL);
 
+  // TODO: Invoking fork should be done only under specific circumstance.
+  // TODO: We want to kill pd_pid if it times out
   pid_t pd_pid = fork();
   if (pd_pid==0) { /* child process */
+
+      const char *pd_script = fsrv->out_file;
       
-      static char *argv[]={"/home/pamusuo/research/ampaschal-packetdrill/gtests/net/packetdrill/packetdrill",
+      char *argv[]={"/home/pamusuo/research/ampaschal-packetdrill/gtests/net/packetdrill/packetdrill",
       "--so_filename=/home/pamusuo/research/rtos-fuzzing/rtos-bridge/libfreertos-bridge.so",
+      "--fm_filename=/home/pamusuo/research/rtos-fuzzing/packet-mutation/libmutation-interface.so",
       "--local_ip=125.0.75.0",
       "--non_fatal=packet",
-      "--tolerance_usecs=1000000",
-      "/home/pamusuo/research/ampaschal-packetdrill/gtests/net/tcp/blocking/blocking-accept.pkt", NULL};
+      "--tolerance_usecs=1000000", pd_script, NULL};
       res = execv("/home/pamusuo/research/ampaschal-packetdrill/gtests/net/packetdrill/packetdrill", argv);
       if (res != 0) {
         printf("An error occurred executing with errno %d\n", errno);
