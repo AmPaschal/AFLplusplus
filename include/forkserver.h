@@ -207,6 +207,8 @@ void              afl_fsrv_deinit(afl_forkserver_t *fsrv);
 void              afl_fsrv_kill(afl_forkserver_t *fsrv);
 void handle_timeout();
 
+
+
 #ifdef __APPLE__
   #define MSG_FORK_ON_APPLE                                                    \
     "    - On MacOS X, the semantics of fork() syscalls are non-standard and " \

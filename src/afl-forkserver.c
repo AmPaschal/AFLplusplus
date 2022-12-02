@@ -1269,24 +1269,43 @@ void afl_fsrv_kill(afl_forkserver_t *fsrv) {
 
 void handle_timeout_fsrv(afl_forkserver_t *fsrv) {
 
+  printf("Timeout called in forkserver...\n");
+
   if (fsrv->timeout_pending && fsrv->child_pid) {
     /* If there was no response from forkserver after timeout seconds,
     we kill the child. The forkserver should inform us afterwards */
 
+    printf("Timeout handled in signal handler with %d...\n", fsrv->kill_signal);
     s32 tmp_pid = fsrv->child_pid;
     if (tmp_pid > 0) {
 
-      kill(tmp_pid, fsrv->kill_signal);
+      int kill_success = kill(tmp_pid, fsrv->kill_signal);
+      if (kill_success < 0) {
+        printf("Error killing pd_pid with errno %d...\n", errno);
+      }
       fsrv->child_pid = -1;
 
     }
 
+    s32 pd_pid = fsrv->pd_pid;
+
+    if (pd_pid > 0) {
+      int kill_success = kill(pd_pid, fsrv->kill_signal);
+      if (kill_success < 0) {
+        printf("Error killing pd_pid with errno %d...\n", errno);
+      }
+      fsrv->pd_pid = -1;
+    }
+
+    fsrv->timeout_pending = 0;
     fsrv->last_run_timed_out = 1;
   }
 }
 
 
 void handle_timeout() {
+
+  printf("handle_timeout...\n");
 
   LIST_FOREACH(&fsrv_list, afl_forkserver_t, {
 
@@ -1431,7 +1450,7 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
                     volatile u8 *stop_soon_p) {
 
   s32 res;
-  u32 exec_ms;
+  u32 exec_ms = 0;
   u32 write_value = fsrv->last_run_timed_out;
 
 #ifdef __linux__
@@ -1564,15 +1583,41 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
 
   struct itimerval it;
 
+  //printf("timeout is %d...\n", timeout);
+
+  it.it_interval.tv_sec = 0;
+  it.it_interval.tv_usec = 0;
+
   it.it_value.tv_sec = (timeout / 1000);
   it.it_value.tv_usec = (timeout % 1000) * 1000;
 
-  setitimer(ITIMER_REAL, &it, NULL);
+  int timerRes = setitimer(ITIMER_REAL, &it, NULL);
+
+  // printf("it.it_value.tv_usec is %ld...\n", it.it_value.tv_usec);
+
+  if (timerRes == 0) {
+    //printf("Timer result is %d...\n", timerRes);
+  } else {
+    //printf("Timer result is %d and errno %d...\n", timerRes, errno);
+  }
+  
+
+  fsrv->timeout_pending = 1;
 
   // TODO: Invoking fork should be done only under specific circumstance.
   // TODO: We want to kill pd_pid if it times out
   pid_t pd_pid = fork();
   if (pd_pid==0) { /* child process */
+
+      /* open /dev/null for writing */
+      int fd = open("/dev/null", O_WRONLY);
+
+      dup2(fd, 1);    /* make stdout a copy of fd (> /dev/null) */
+      dup2(fd, 2);    /* ...and same with stderr */
+      close(fd);      /* close fd */
+
+      /* stdout and stderr now write to /dev/null */
+      /* ready to call exec */
 
       const char *pd_script = fsrv->out_file;
       
@@ -1589,10 +1634,42 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
       exit(127); /* only if execv fails */
   }
 
+  /* 
+  pid_t pd_pid = fork();
+  if (pd_pid==0) { 
+
+    pd_pid = fork();
+
+    if (pd_pid == 0) {
+
+      const char *pd_script = fsrv->out_file;
+    
+      char *argv[]={"/home/pamusuo/research/ampaschal-packetdrill/gtests/net/packetdrill/packetdrill",
+      "--so_filename=/home/pamusuo/research/rtos-fuzzing/rtos-bridge/libfreertos-bridge.so",
+      "--fm_filename=/home/pamusuo/research/rtos-fuzzing/packet-mutation/libmutation-interface.so",
+      "--local_ip=125.0.75.0",
+      "--non_fatal=packet",
+      "--tolerance_usecs=1000000", pd_script, NULL};
+      res = execv("/home/pamusuo/research/ampaschal-packetdrill/gtests/net/packetdrill/packetdrill", argv);
+      if (res != 0) {
+        printf("An error occurred executing with errno %d\n", errno);
+      }
+      exit(127); 
+    } else {
+      // Send the pid to parent
+      exit(0);
+    }
+
+      
+  }
+   */
+
   fsrv->pd_pid = pd_pid;
 
   restart_read:
   res = read(fsrv->fsrv_st_fd, &fsrv->child_status, 4);
+
+  //printf("Child has returned with status %d...\n", fsrv->child_status);
 
   if (likely(res == 4)) {  // for speed we put this first
 
@@ -1614,7 +1691,11 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
   it.it_value.tv_sec = 0;
   it.it_value.tv_usec = 0;
 
+  it.it_interval.tv_sec = 0;
+  it.it_interval.tv_usec = 0;
+
   setitimer(ITIMER_REAL, &it, NULL);
+  fsrv->timeout_pending = 0;
 
 
   /* exec_ms = read_s32_timed(fsrv->fsrv_st_fd, &fsrv->child_status, timeout,

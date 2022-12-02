@@ -71,7 +71,9 @@ fuzz_run_target(afl_state_t *afl, afl_forkserver_t *fsrv, u32 timeout) {
 
 /* Write modified data to file for testing. If afl->fsrv.out_file is set, the
    old file is unlinked and a new one is created. Otherwise, afl->fsrv.out_fd is
-   rewound and truncated. */
+   rewound and truncated.
+   When calling the postprocessor, new_mem represents the input from the queue
+   while new_buf represents the output from the postprocessor */
 
 u32 __attribute__((hot))
 write_to_testcase(afl_state_t *afl, void **mem, u32 len, u32 fix) {
@@ -131,11 +133,18 @@ write_to_testcase(afl_state_t *afl, void **mem, u32 len, u32 fix) {
 
     }
 
-    if (new_mem != *mem) { *mem = new_mem; }
+    /* 
+    I will be making some changes here so that the buffer returned from the postprocessor
+    is not propagated back to the calling function.
+    1. If the postprocessor returns a buffer, the returned buffer will be written to the file.
+    2. The original buffer wont be updated and the original length would be returned.
+     */
+
+    // if (new_mem != *mem) { *mem = new_mem; }
 
     /* everything as planned. use the potentially new data. */
-    afl_fsrv_write_to_testcase(&afl->fsrv, *mem, new_size);
-    len = new_size;
+    afl_fsrv_write_to_testcase(&afl->fsrv, new_mem, new_size);
+    //len = new_size;
 
   } else {
 

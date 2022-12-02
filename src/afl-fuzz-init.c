@@ -2562,6 +2562,7 @@ static void handle_skipreq(int sig) {
 static void handle_timeout_signal(int sig) {
 
   (void)sig;
+  printf("handle_timeout_signal");
   handle_timeout();
 
 }

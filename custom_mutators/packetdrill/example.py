@@ -82,13 +82,15 @@ def generate_replace_inst(buf, current_counter):
 
     return current_counter, inst;
 
-MAX_INSERT_BYTES = 6;
+MAX_INSERT_BYTES = 4;
 
 MAX_DELETE_BYTES = 6;
 
-def generate_insert_inst(buf, current_counter):
+MAX_INSERT_POINT = 20;
 
-    insert_point = buf[current_counter];
+def generate_insert_random(buf, current_counter):
+
+    insert_point = buf[current_counter] % MAX_INSERT_POINT;
 
     current_counter += 1;
 
@@ -98,11 +100,78 @@ def generate_insert_inst(buf, current_counter):
 
     insert_bytes: bytearray = buf[current_counter: current_counter + num_insert_butes];
 
+    if (len(insert_bytes) == 0):
+        return current_counter - 2, "";
+
     insert_bytes = insert_bytes.hex().capitalize();
 
     current_counter += num_insert_butes;
 
     return current_counter, f"ins tcp {insert_point} 0x{insert_bytes}";
+
+insert_types = ["tcp_option", "ipv4_option", "random_bytes"]
+
+def generate_insert_inst(buf, current_counter):
+
+    if (len(buf) < current_counter + 7):
+        return current_counter, ""
+
+    insert_type_idx = buf[current_counter] % len(insert_types);
+    current_counter += 1;
+
+    if (insert_type_idx == 0):
+        return generate_insert_tcp_option(buf, current_counter);
+    elif (insert_type_idx == 1):
+        return generate_insert_IPv4_option(buf, current_counter)
+    else:
+        return generate_insert_random(buf, current_counter);
+
+NUM_TCP_KINDS = 5
+MAX_TCP_LEN = 3
+
+def generate_insert_tcp_option(buf, current_counter):
+
+    option_kind = buf[current_counter] % NUM_TCP_KINDS
+    current_counter += 1
+    option_len = buf[current_counter] % MAX_TCP_LEN
+    current_counter += 1
+    option_values = buf[current_counter: current_counter + option_len]
+    current_counter += option_len
+
+    #print(f"option_kind: {option_kind} \n option_len: {option_len} \n option_values: {option_values}")
+
+    option_kind_hex = "{:02x}".format(option_kind)
+    option_len_hex = "{:02x}".format(option_len) 
+    option_values_hex = option_values.hex()
+
+    return current_counter, f"ins tcp 20 0x{option_kind_hex}{option_len_hex}{option_values_hex}"
+
+NUM_IP_KINDS = 5
+MAX_IP_OPTION_LEN = 3
+
+def generate_insert_IPv4_option(buf, current_counter):
+
+    option_kind = buf[current_counter] % NUM_IP_KINDS
+    current_counter += 1
+    option_len = buf[current_counter] % MAX_IP_OPTION_LEN
+    current_counter += 1
+    option_values = buf[current_counter: current_counter + option_len]
+    current_counter += option_len
+
+    option_len_value = option_len + 2
+
+    #print(f"option_kind: {option_kind} \n option_len: {option_len_value} \n option_values: {option_values}")
+
+    option_kind_hex = "{:02x}".format(option_kind)
+    option_len_hex = "{:02x}".format(option_len_value) 
+    option_values_hex = option_values.hex()
+
+    return current_counter, f"ins ipv4 20 0x{option_kind_hex}{option_len_hex}{option_values_hex}"
+
+
+def generate_truncate_tcp_header_inst(buf, current_counter):
+
+    return current_counter, f"trun tcp 0 20"
 
 
 def generate_delete_inst(buf, current_counter):
@@ -130,11 +199,11 @@ def post_process(buf):
 #     @return: The buffer containing the test case after
 
     if (len(buf) < 5):
-        return 0;
+        return bytes("", "utf-8");
 
     current_counter = 0;
 
-    pd_commands = get_pd_commands_from_script("/home/pamusuo/research/ampaschal-packetdrill/gtests/net/tcp/blocking/blocking-accept-fuzz.pkt");
+    pd_commands = get_pd_commands_from_script("/home/pamusuo/research/ampaschal-packetdrill/gtests/net/tcp/blocking/blocking-accept-fuzz-template.pkt");
     
     first_byte = buf[current_counter];
 
@@ -165,7 +234,7 @@ def post_process(buf):
         elif control == 1:
             (current_counter, inst) = generate_insert_inst(buf, current_counter);
         else:
-            (current_counter, inst) = generate_delete_inst(buf, current_counter);
+            (current_counter, inst) = generate_truncate_tcp_header_inst(buf, current_counter);
 
         if (inst == ""):
             updated_commands.append(pd_command);
@@ -177,12 +246,12 @@ def post_process(buf):
 
     updated_buf = bytearray(updated_command_string.encode());
 
-    timestamp = calendar.timegm(time.gmtime());
+    """ timestamp = calendar.timegm(time.gmtime());
 
     mutated_filename = f"afl-pd-{timestamp}.pkt"
 
     with open(mutated_filename, "wb") as mutated_files:
-        mutated_files.write(updated_buf);
+        mutated_files.write(updated_buf); """
 
     pd_command_string = ''.join(pd_commands);
 
@@ -191,6 +260,14 @@ def post_process(buf):
     return buf
 
 
+if __name__ == "__main__":
+
+    buf = b"042af4"
+    
+    current_counter, inst = generate_truncate_tcp_header_inst(buf, 0)
+
+    print(f"current counter: {current_counter}")
+    print("instruction: " + inst)
 
 
 # Uncomment and implement the following methods if you want to use a custom

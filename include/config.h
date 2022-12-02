@@ -109,7 +109,7 @@
    Config can be adjusted via AFL_STATSD_HOST and AFL_STATSD_PORT environment
    variable.
 */
-#define STATSD_UPDATE_SEC 1
+#define STATSD_UPDATE_SEC 120
 #define STATSD_DEFAULT_PORT 8125
 #define STATSD_DEFAULT_HOST "127.0.0.1"
 
