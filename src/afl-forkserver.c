@@ -48,6 +48,11 @@
 #include <sys/resource.h>
 #include <sys/select.h>
 #include <sys/stat.h>
+#include <linux/if.h>
+#include <linux/if_tun.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
 
 /**
  * The correct fds for reading and writing pipes
@@ -373,6 +378,62 @@ static void report_error_and_exit(int error) {
   }
 
 }
+
+
+/* This function creates a TAP interface and returns the file descriptor
+* The TAP interface is used by PacketDrill to send packets to the target under test */
+int tun_alloc(char *dev, int flags) {
+
+  struct ifreq ifr;
+  int fd, err;
+  char *clonedev = "/dev/net/tun";
+
+  /* Arguments taken by the function:
+   *
+   * char *dev: the name of an interface (or '\0'). MUST have enough
+   *   space to hold the interface name if '\0' is passed
+   * int flags: interface flags (eg, IFF_TUN etc.)
+   */
+
+   /* open the clone device */
+   if( (fd = open(clonedev, O_RDWR)) < 0 ) {
+      printf("tun open failed with code %d and errno %d...\n", fd, errno);
+      return fd;
+   }
+
+   printf("Tap file descriptor is %d...\n", fd);
+
+   /* preparation of the struct ifr, of type "struct ifreq" */
+   memset(&ifr, 0, sizeof(ifr));
+
+   ifr.ifr_flags = flags;   /* IFF_TUN or IFF_TAP, plus maybe IFF_NO_PI */
+
+   if (*dev) {
+     /* if a device name was specified, put it in the structure; otherwise,
+      * the kernel will try to allocate the "next" device of the
+      * specified type */
+     strncpy(ifr.ifr_name, dev, IFNAMSIZ);
+   }
+
+   /* try to create the device */
+   if( (err = ioctl(fd, TUNSETIFF, (void *) &ifr)) < 0 ) {
+      printf("tun ioctl failed with code %d and errno %s...\n", err, strerror(errno));
+      close(fd);
+      return err;
+   }
+
+  /* if the operation was successful, write back the name of the
+   * interface to the variable "dev", so the caller can know
+   * it. Note that the caller MUST reserve space in *dev (see calling
+   * code below) */
+  strcpy(dev, ifr.ifr_name);
+
+  /* this is the special file descriptor that the caller will use to talk
+   * with the virtual interface */
+  return fd;
+}
+
+
 
 /* Spins up fork server. The idea is explained here:
 
@@ -1027,6 +1088,23 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
     }
 
+    if (getenv("PD_ENABLE_TAP")) {
+      // Now we start our TAP interface and save the fd
+      char tun_name[6];
+
+      /* Connect to the device */
+      strcpy(tun_name, "tap0");
+      int tun_fd = tun_alloc(tun_name, IFF_TAP | IFF_NO_PI);  /* tun interface */
+
+      if(tun_fd < 0){
+        printf("Allocating interface failed with code: %d and errno: %d...\n", tun_fd, errno);
+        exit(-1);
+      } else {
+        printf("Allocating tap interface succeeded with fd %d\n", tun_fd);
+        fsrv->pd_tap_fd = tun_fd;
+      }
+    }
+
     return;
 
   }
@@ -1604,17 +1682,23 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
 
   fsrv->timeout_pending = 1;
 
+  // Confirm TAP interface has been allocated
+  if (getenv("PD_ENABLE_TAP") && fsrv->pd_tap_fd < 0) {
+    printf("TAP interface not found...\n");
+    exit(-1);
+  }
+
   // TODO: Invoking fork should be done only under specific circumstance.
   // TODO: We want to kill pd_pid if it times out
   pid_t pd_pid = fork();
   if (pd_pid==0) { /* child process */
 
       /* open /dev/null for writing */
-      int fd = open("/dev/null", O_WRONLY);
+      // int fd = open("/dev/null", O_WRONLY);
 
-      dup2(fd, 1);    /* make stdout a copy of fd (> /dev/null) */
-      dup2(fd, 2);    /* ...and same with stderr */
-      close(fd);      /* close fd */
+      // dup2(fd, 1);    /* make stdout a copy of fd (> /dev/null) */
+      // dup2(fd, 2);    /* ...and same with stderr */
+      // close(fd);      /* close fd */
 
       /* stdout and stderr now write to /dev/null */
       /* ready to call exec */
@@ -1627,7 +1711,19 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
       "--local_ip=125.0.75.0",
       "--non_fatal=packet",
       "--tolerance_usecs=1000000", pd_script, NULL};
-      res = execv("/home/pamusuo/research/ampaschal-packetdrill/gtests/net/packetdrill/packetdrill", argv);
+
+      if (fsrv->pd_tap_fd > 0) {
+        printf("Using env variables to invoke packetdrill...\n");
+        //char *env[] = {"PD_TAP_FD=" + fsrv->pd_tap_fd, NULL};
+        char fd_ptr[3];
+        sprintf(fd_ptr, "%d", fsrv->pd_tap_fd);
+        setenv("PD_TAP_FD", fd_ptr, 1);
+        res = execv("/home/pamusuo/research/ampaschal-packetdrill/gtests/net/packetdrill/packetdrill", argv);
+      } else {
+        printf("Not using env variables to invoke pd...\n");
+        res = execv("/home/pamusuo/research/ampaschal-packetdrill/gtests/net/packetdrill/packetdrill", argv);
+      }
+      
       if (res != 0) {
         printf("An error occurred executing with errno %d\n", errno);
       }

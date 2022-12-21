@@ -86,6 +86,7 @@ typedef struct afl_forkserver {
   s32 fsrv_pid,                         /* PID of the fork server           */
       child_pid,                        /* PID of the fuzzed program        */
       pd_pid,                           /* PID of PacketDrill */
+      pd_tap_fd,                        /* TAP fd used by PacketDrill */
       child_status,                     /* waitpid result for the child     */
       timeout_pending,                  /* We set this whenever we start a timeout and need to kill the child at the timeout's expiration */
       out_dir_fd;                       /* FD of the lock file              */

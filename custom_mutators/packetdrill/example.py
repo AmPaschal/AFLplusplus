@@ -18,6 +18,8 @@ import calendar
 import time
 import random
 import re
+import sys
+import os
 
 
 def init(seed):
@@ -47,40 +49,68 @@ def get_pd_commands_from_script(filename):
         print("Exception while opening the file");
         return [];
 
-fields = ["src_port", "dst_port", "seq_num", "ack_num", "header_length", "flags", "win_size", "checksum", "urg_pointer"];
+tcp_fields = [
+    {"name": "src_port", "no_bytes": 2},
+    {"name": "dst_port", "no_bytes": 2},
+    {"name": "seq_num", "no_bytes": 4},
+    {"name": "ack_num", "no_bytes": 4},
+    {"name": "tcp_hdr_len", "no_bytes": 1},
+    {"name": "flags", "no_bytes": 1},
+    {"name": "win_size", "no_bytes": 2},
+    {"name": "tcp_checksum", "no_bytes": 2},
+    {"name": "urg_pointer", "no_bytes": 2}
+]
 
-fields = ["src_port","ack", "win", "mss"];
+#fields = ["src_port","ack", "win", "mss"];
 
-def generate_replace_inst(buf, current_counter):
+def generate_replace_tcp_inst(buf, current_counter):
 
-    field_index = buf[current_counter] % len(fields);
+    field_index = buf[current_counter] % len(tcp_fields);
 
     current_counter += 1;
 
-    field = fields[field_index];
+    field_dict = tcp_fields[field_index];
 
-    inst = "rep";
-    if (field == "src_port"):
-        src_port_bytes: bytearray = buf[current_counter: current_counter + 2];
-        inst = inst + " tcp src_port 0x" + src_port_bytes.hex().capitalize();
-        current_counter += 2;
+    if (current_counter + field_dict["no_bytes"] > len(buf)):
+        return current_counter - 1, ""
 
-    elif (field == "ack"):
-        src_port_bytes: bytearray = buf[current_counter: current_counter + 4];
-        inst = inst + " tcp ack 0x" + src_port_bytes.hex().capitalize();
-        current_counter += 2;
-
-    elif (field == "win"):
-        src_port_bytes: bytearray = buf[current_counter: current_counter + 2];
-        inst = inst + " tcp win 0x" + src_port_bytes.hex().capitalize();
-        current_counter += 2;
-
-    elif (field == "mss"):
-        src_port_bytes: bytearray = buf[current_counter: current_counter + 2];
-        inst = inst + " tcp mss 0x" + src_port_bytes.hex().capitalize();
-        current_counter += 2;
+    src_port_bytes: bytearray = buf[current_counter: current_counter + field_dict["no_bytes"]];
+    inst = "rep tcp " + field_dict["name"] + " 0x" + src_port_bytes.hex().capitalize();
+    current_counter += field_dict["no_bytes"];
 
     return current_counter, inst;
+
+
+ip_fields = [
+    {"name": "version_ihl", "no_bytes": 1},
+    {"name": "dscp_esn", "no_bytes": 1},
+    {"name": "tot_len", "no_bytes": 2},
+    {"name": "iden", "no_bytes": 2},
+    {"name": "flags_fragoff", "no_bytes": 2},
+    {"name": "ttl", "no_bytes": 1},
+    {"name": "protocol", "no_bytes": 1},
+    {"name": "ip_checksum", "no_bytes": 2},
+    {"name": "src_ip", "no_bytes": 4},
+    {"name": "dest_ip", "no_bytes": 4}
+]
+
+def generate_replace_ip_inst(buf, current_counter):
+
+    field_index = buf[current_counter] % len(ip_fields);
+
+    current_counter += 1;
+
+    field_dict = ip_fields[field_index];
+
+    if (current_counter + field_dict["no_bytes"] > len(buf)):
+        return current_counter - 1, ""
+
+    rep_bytes: bytearray = buf[current_counter: current_counter + field_dict["no_bytes"]];
+    inst = "rep ipv4 " + field_dict["name"] + " 0x" + rep_bytes.hex().capitalize();
+    current_counter += field_dict["no_bytes"];
+
+    return current_counter, inst;
+
 
 MAX_INSERT_BYTES = 4;
 
@@ -227,11 +257,13 @@ def post_process(buf):
 
         current_counter += 1;
 
-        control = control_byte % 3;
+        control = control_byte % 4;
 
         if control == 0:
-            (current_counter, inst) = generate_replace_inst(buf, current_counter);
+            (current_counter, inst) = generate_replace_tcp_inst(buf, current_counter);
         elif control == 1:
+            (current_counter, inst) = generate_replace_ip_inst(buf, current_counter);
+        elif control == 2:
             (current_counter, inst) = generate_insert_inst(buf, current_counter);
         else:
             (current_counter, inst) = generate_truncate_tcp_header_inst(buf, current_counter);
@@ -255,140 +287,47 @@ def post_process(buf):
 
     pd_command_string = ''.join(pd_commands);
 
-    buf = bytearray(updated_command_string.encode());
-
-    return buf
+    return bytearray(updated_command_string.encode());
 
 
 if __name__ == "__main__":
 
-    buf = b"042af4"
+    # Check if the user has provided two file paths
+    if len(sys.argv) != 3:
+        # If not, display an error message and exit
+        print("Error: please provide two file paths")
+        exit(1)
+
+    # Get the file paths from the command line arguments
+    src_path = sys.argv[1]
+    dest_folder_path = sys.argv[2]
+
+    # Open the source file for reading
+    with open(src_path, "rb") as src_file:
+        # Read the contents of the source file
+        src_data = src_file.read()
+
+    processed_data = post_process(src_data)
+
+    if (len(processed_data) == 0):
+        print("Post process retuned empty string")
+        exit(1)
+
+    file_name = os.path.basename(src_path)
+    dest_file_name = os.path.join(dest_folder_path, file_name + ".pd")
+
+    # Open the destination file for writing
+    with open(dest_file_name, "w") as dest_file:
+        # Write the contents of the source file to the destination file
+        dest_file.write(processed_data.decode("utf-8"))
+
+    # Display a success message
+    print(f"Successfully written post-processed data to {dest_file_name}")
+
+    """ buf = b"042af4"
     
     current_counter, inst = generate_truncate_tcp_header_inst(buf, 0)
 
     print(f"current counter: {current_counter}")
-    print("instruction: " + inst)
+    print("instruction: " + inst) """
 
-
-# Uncomment and implement the following methods if you want to use a custom
-# trimming algorithm. See also the documentation for a better API description.
-
-# def init_trim(buf):
-#     '''
-#     Called per trimming iteration.
-#
-#     @type buf: bytearray
-#     @param buf: The buffer that should be trimmed.
-#
-#     @rtype: int
-#     @return: The maximum number of trimming steps.
-#     '''
-#     global ...
-#
-#     # Initialize global variables
-#
-#     # Figure out how many trimming steps are possible.
-#     # If this is not possible for your trimming, you can
-#     # return 1 instead and always return 0 in post_trim
-#     # until you are done (then you return 1).
-#
-#     return steps
-#
-# def trim():
-#     '''
-#     Called per trimming iteration.
-#
-#     @rtype: bytearray
-#     @return: A new bytearray containing the trimmed data.
-#     '''
-#     global ...
-#
-#     # Implement the actual trimming here
-#
-#     return bytearray(...)
-#
-# def post_trim(success):
-#     '''
-#     Called after each trimming operation.
-#
-#     @type success: bool
-#     @param success: Indicates if the last trim operation was successful.
-#
-#     @rtype: int
-#     @return: The next trim index (0 to max number of steps) where max
-#              number of steps indicates the trimming is done.
-#     '''
-#     global ...
-#
-#     if not success:
-#         # Restore last known successful input, determine next index
-#     else:
-#         # Just determine the next index, based on what was successfully
-#         # removed in the last step
-#
-#     return next_index
-#
-# def post_process(buf):
-#     '''
-#     Called just before the execution to write the test case in the format
-#     expected by the target
-#
-#     @type buf: bytearray
-#     @param buf: The buffer containing the test case to be executed
-#
-#     @rtype: bytearray
-#     @return: The buffer containing the test case after
-#     '''
-#     return buf
-#
-# def havoc_mutation(buf, max_size):
-#     '''
-#     Perform a single custom mutation on a given input.
-#
-#     @type buf: bytearray
-#     @param buf: The buffer that should be mutated.
-#
-#     @type max_size: int
-#     @param max_size: Maximum size of the mutated output. The mutation must not
-#         produce data larger than max_size.
-#
-#     @rtype: bytearray
-#     @return: A new bytearray containing the mutated data
-#     '''
-#     return mutated_buf
-#
-# def havoc_mutation_probability():
-#     '''
-#     Called for each `havoc_mutation`. Return the probability (in percentage)
-#     that `havoc_mutation` is called in havoc. Be default it is 6%.
-#
-#     @rtype: int
-#     @return: The probability (0-100)
-#     '''
-#     return prob
-#
-# def queue_get(filename):
-#     '''
-#     Called at the beginning of each fuzz iteration to determine whether the
-#     test case should be fuzzed
-#
-#     @type filename: str
-#     @param filename: File name of the test case in the current queue entry
-#
-#     @rtype: bool
-#     @return: Return True if the custom mutator decides to fuzz the test case,
-#         and False otherwise
-#     '''
-#     return True
-#
-# def queue_new_entry(filename_new_queue, filename_orig_queue):
-#     '''
-#     Called after adding a new test case to the queue
-#
-#     @type filename_new_queue: str
-#     @param filename_new_queue: File name of the new queue entry
-#
-#     @type filename_orig_queue: str
-#     @param filename_orig_queue: File name of the original queue entry
-#     '''
-#     pass
