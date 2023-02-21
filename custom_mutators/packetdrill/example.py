@@ -17,10 +17,13 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 import calendar
 import time
 import random
+import struct
 import re
 import sys
 import os
 
+
+iter_index = 0
 
 def init(seed):
     """
@@ -36,11 +39,11 @@ def deinit():
     pass
 
 def get_pd_commands_from_script(filename):
-
+    
     try:
         with open(filename, "r") as pd_script:
             pd_commands = pd_script.readlines();
-
+            
             pruned_commands = [command for command in pd_commands if (command.strip() != "" and not command.startswith("//"))];
 
             return pruned_commands;
@@ -217,6 +220,58 @@ def generate_delete_inst(buf, current_counter):
     return current_counter, f"trun tcp {delete_point} {num_truncate_bytes}";
 
 
+tcp_states = [
+    ("ESTABLISHED", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-established.pkt", 9),
+    ("ESTABLISHED-OPTION", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-established-option.pkt", 9),
+    ("LISTEN", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-listen.pkt", 5),
+    ("SEND", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-send.pkt", 11),
+    ("SYN_RECEIVED", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-syn-rcvd.pkt", 8),
+    ("SYN_SENT", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-syn-sent.pkt", 4),
+    ("LAST_ACK", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-last-ack.pkt", 10),
+    ("FIN_WAIT", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-fin-wait.pkt", 12)
+]
+
+udp_states = [
+    ("SOCKET_OPEN", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/udp_templates/fuzz_template_socket_open.pkt", 5),
+    ("SOCKET_CLOSED", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/udp_templates/fuzz_template_socket_closed.pkt", 1)
+]
+
+opcodes = [
+    (0, "INSERT_MSS", "ins tcp mss", True), 
+    (1, "INSERT_IP_OPTION", "ins ipv4 20", True), 
+    (2, "REPLACE_IPV4_HEADER_LENGTH", "rep ipv4 version_ihl", True), 
+    (3, "REPLACE_TCP_HEADER_LENGTH", "rep tcp tcp_hdr_len", True),
+    (4, "TRUN_TCP_HEADER", "trun tcp 0", False),
+    (5, "REPLACE_IPV4_SOURCE_ADDR", "rep ipv4 src_ip", True)
+    ]
+
+def decode_instruction(bytes_: bytes):
+    opcode = struct.unpack("!B", bytes_[:1])[0] % len(opcodes)
+    print(f"opcode {opcode}")
+    opcode_found = False
+    for i, op in enumerate(opcodes):
+        if op[0] == opcode:
+            opcode_found = True
+            break
+    
+    if opcode_found == False:
+        return ""
+    
+    fuzz_inst = ""
+    if op[3] == True:
+        value = bytes_[4:].hex().upper()
+        if len(value) == 0:
+            print(f"invalid value: {bytes_.hex().upper()}")
+            return "" 
+        fuzz_inst = "{" + op[2] + " " + "0x"+value + "}"
+    else:
+        value_bytes = bytes_[4:].rjust(4, b'\x00')
+        value = int.from_bytes(value_bytes, byteorder='big')
+        fuzz_inst = "{" + op[2] + " " + str(value) + "}"
+    
+    return fuzz_inst
+
+
 def post_process(buf):
 
 #     Called just before the execution to write the test case in the format
@@ -228,66 +283,66 @@ def post_process(buf):
 #     @rtype: bytearray
 #     @return: The buffer containing the test case after
 
-    if (len(buf) < 5):
+    global iter_index
+
+    if (len(buf) < 4):
         return bytes("", "utf-8");
 
-    current_counter = 0;
-
-    pd_commands = get_pd_commands_from_script("/home/pamusuo/research/ampaschal-packetdrill/gtests/net/tcp/blocking/blocking-accept-fuzz-template.pkt");
+    # print(f"Fuzz iteration {iter_index}")
     
-    first_byte = buf[current_counter];
+    state_idx_to_fuzz = buf[1] % len(tcp_states)
 
-    current_counter += 1;
+    state_to_fuzz = tcp_states[state_idx_to_fuzz]
+    iter_index = iter_index + 1
 
-    start_index = first_byte % len(pd_commands);
+    pd_commands = get_pd_commands_from_script(state_to_fuzz[1]);
 
-    updated_commands = pd_commands[0: start_index]
+    print(f"STate to fuzz: {state_to_fuzz}")
+    # print(f"Length of list: {len(pd_commands)}")
 
-    for i in range(start_index, len(pd_commands)):
+    fuzz_index = state_to_fuzz[2] - 1
+    
+    pd_command = pd_commands[fuzz_index]
 
-        pd_command = pd_commands[i];
+    #updated_commands = pd_commands[:-1]
+    updated_commands = pd_commands[0: fuzz_index]
 
-        inbound_match = re.search("\+\d*\.?\d* < [S|F|P|\.]", pd_command);
+    inbound_match = re.search("\+\d*\.?\d* < [S|F|P|\.]?", pd_command);
 
-        if (inbound_match is None or (len(buf) - current_counter) < 3):
-            updated_commands.append(pd_command);
-            continue;
+    if (inbound_match is None):
+        updated_commands.append(pd_command);
+        return bytes("", "utf-8")
 
-        control_byte = buf[current_counter];
+    try:
+        inst = decode_instruction(buf)
+    except:
+        return bytes("", "utf-8")
 
-        current_counter += 1;
+    if (inst == ""):
+        return bytes("", "utf-8")
+    else:
+        print(f"Fuzz Instruction: {inst}")
+        print(f"Script id: {state_idx_to_fuzz} min_length: {buf[2]} max_length: {buf[3]}")
+        fuzz_instruction = pd_command.strip() + inst + '\n';
+        updated_commands.append(fuzz_instruction);
 
-        control = control_byte % 4;
-
-        if control == 0:
-            (current_counter, inst) = generate_replace_tcp_inst(buf, current_counter);
-        elif control == 1:
-            (current_counter, inst) = generate_replace_ip_inst(buf, current_counter);
-        elif control == 2:
-            (current_counter, inst) = generate_insert_inst(buf, current_counter);
-        else:
-            (current_counter, inst) = generate_truncate_tcp_header_inst(buf, current_counter);
-
-        if (inst == ""):
-            updated_commands.append(pd_command);
-        else:
-            fuzz_instruction = pd_command.strip() + ' {' + inst + '}\n';
-            updated_commands.append(fuzz_instruction);
+    if (fuzz_index < len(pd_commands) - 1):
+        updated_commands.extend(pd_commands[fuzz_index + 1 :])
 
     updated_command_string = ''.join(updated_commands);
 
     updated_buf = bytearray(updated_command_string.encode());
 
-    """ timestamp = calendar.timegm(time.gmtime());
+    # timestamp = calendar.timegm(time.gmtime());
 
-    mutated_filename = f"afl-pd-{timestamp}.pkt"
+    # mutated_filename = f"afl-pd-{timestamp}.pkt"
 
-    with open(mutated_filename, "wb") as mutated_files:
-        mutated_files.write(updated_buf); """
+    # with open(mutated_filename, "wb") as mutated_files:
+    #     mutated_files.write(updated_buf); 
 
-    pd_command_string = ''.join(pd_commands);
+    # pd_command_string = ''.join(pd_commands);
 
-    return bytearray(updated_command_string.encode());
+    return updated_buf;
 
 
 if __name__ == "__main__":
