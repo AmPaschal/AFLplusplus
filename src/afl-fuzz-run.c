@@ -84,29 +84,78 @@ write_to_testcase(afl_state_t *afl, void **mem, u32 len, u32 fix) {
     u8     *new_mem = *mem;
     u8     *new_buf = NULL;
 
-    LIST_FOREACH(&afl->custom_mutator_list, struct custom_mutator, {
+    u8 min_length = new_mem[2];
+    u8 max_length = new_mem[3];
 
-      if (el->afl_custom_post_process) {
+    //printf("Fuzz seed min length: %d \n", min_length);
+    //printf("Fuzz seed max length: %d \n", max_length);
 
-        new_size =
-            el->afl_custom_post_process(el->data, new_mem, new_size, &new_buf);
+    if (unlikely(new_size < min_length)) {
 
-        if (unlikely(!new_buf || new_size <= 0)) {
+      new_size = min_length;
 
-          new_size = 0;
-          new_buf = new_mem;
-          // FATAL("Custom_post_process failed (ret: %lu)", (long
-          // unsigned)new_size);
+    } else if (unlikely(new_size > max_length)) {
 
-        } else {
+      new_size = max_length;
 
-          new_mem = new_buf;
+    }
 
-        }
+    // Write new_mem to file
 
-      }
+    FILE *fp = fopen("/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/original_fuzz_seed", "wb");
+    fwrite(new_mem, 1, new_size, fp);
+    fclose(fp);
 
-    });
+    // Call python script to postprocess 
+    system("python3 /home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/example.py /home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/original_fuzz_seed /home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/");
+    
+    // Read content of the postprocessed file to new_buf
+    FILE *fp2 = fopen("/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/original_fuzz_seed.pd", "r");
+    fseek(fp2, 0, SEEK_END);
+    new_size = ftell(fp2);
+    fseek(fp2, 0, SEEK_SET);  /* same as rewind(f); */
+    new_buf = malloc(new_size);
+    fread(new_buf, new_size, 1, fp2);
+    fclose(fp2);
+
+    if (unlikely(!new_buf || new_size <= 0)) {
+
+      new_size = 0;
+      new_buf = new_mem;
+      // FATAL("Custom_post_process failed (ret: %lu)", (long
+      // unsigned)new_size);
+
+    } else {
+
+      new_mem = new_buf;
+
+    }
+
+
+
+    // LIST_FOREACH(&afl->custom_mutator_list, struct custom_mutator, {
+
+    //   if (el->afl_custom_post_process) {
+
+    //     new_size =
+    //         el->afl_custom_post_process(el->data, new_mem, new_size, &new_buf);
+
+    //     if (unlikely(!new_buf || new_size <= 0)) {
+
+    //       new_size = 0;
+    //       new_buf = new_mem;
+    //       // FATAL("Custom_post_process failed (ret: %lu)", (long
+    //       // unsigned)new_size);
+
+    //     } else {
+
+    //       new_mem = new_buf;
+
+    //     }
+
+    //   }
+
+    // });
 
     if (unlikely(!new_size)) {
 
@@ -996,8 +1045,25 @@ abort_trimming:
    error conditions, returning 1 if it's time to bail out. This is
    a helper function for fuzz_one(). */
 
+static int fuzz_count = 0;
+
 u8 __attribute__((hot))
 common_fuzz_stuff(afl_state_t *afl, u8 *out_buf, u32 len) {
+
+  if (afl->out_buf_offset > 0) {
+    // Rollback out_buf pointer to point to beginning of buffer
+    out_buf -= afl->out_buf_offset;
+  }
+
+  if (len < 2) {
+    // The buffer doesn't have space for script id
+    return 0;
+  }
+
+  // Set packetdrill script type based on fuzz_count
+  u8 script_id = (fuzz_count++ / 1000);
+  *(out_buf+1) =  script_id;
+  //printf("Inserting to buffer: Fuzz count: %d Script id: %d\n", fuzz_count-1, script_id);
 
   u8 fault;
 
