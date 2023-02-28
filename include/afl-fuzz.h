@@ -718,6 +718,9 @@ typedef struct afl_state {
 
   u8 *testcase_buf, *splicecase_buf;
 
+  /* Needed when we want to start mutations at a certain offset */
+  u8 out_buf_offset;
+
   u32 custom_mutators_count;
 
   struct custom_mutator *current_custom_fuzz;

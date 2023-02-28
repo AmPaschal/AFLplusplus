@@ -69,6 +69,328 @@ fuzz_run_target(afl_state_t *afl, afl_forkserver_t *fsrv, u32 timeout) {
 
 }
 
+
+// fsrv_run_result_t __attribute__((hot))
+// fuzz_run_target(afl_state_t *afl, afl_forkserver_t *fsrv, u32 timeout) {
+
+// #ifdef PROFILING
+//   static u64      time_spent_start = 0;
+//   struct timespec spec;
+//   if (time_spent_start) {
+
+//     u64 current;
+//     clock_gettime(CLOCK_REALTIME, &spec);
+//     current = (spec.tv_sec * 1000000000) + spec.tv_nsec;
+//     time_spent_working += (current - time_spent_start);
+
+//   }
+
+// #endif
+
+//   fsrv_run_result_t res = afl_fsrv_run_target(fsrv, timeout, &afl->stop_soon);
+
+// #ifdef PROFILING
+//   clock_gettime(CLOCK_REALTIME, &spec);
+//   time_spent_start = (spec.tv_sec * 1000000000) + spec.tv_nsec;
+// #endif
+
+//   return res;
+
+// }
+
+// void write_buffer_to_file(char *buffer, size_t buffer_size) {
+//     // Get current time
+//     time_t current_time = time(NULL);
+
+//     // Generate timestamp string
+//     char timestamp[20];
+//     strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M%S", localtime(&current_time));
+
+//     // Create filename with timestamp appended
+//     char filename[256];
+//     snprintf(filename, sizeof(filename), "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/rough/output_%s.txt", timestamp);
+
+//     // Open the file for writing
+//     FILE *fp = fopen(filename, "w");
+//     if (fp == NULL) {
+//         perror("Error opening file for writing");
+//         exit(EXIT_FAILURE);
+//     }
+
+//     // Write the buffer to the file
+//     fwrite(buffer, buffer_size, 1, fp);
+
+//     // Close the file
+//     fclose(fp);
+// }
+
+// /* Write modified data to file for testing. If afl->fsrv.out_file is set, the
+//    old file is unlinked and a new one is created. Otherwise, afl->fsrv.out_fd is
+//    rewound and truncated.
+//    When calling the postprocessor, new_mem represents the input from the queue
+//    while new_buf represents the output from the postprocessor */
+
+// int hex_to_int(char c) {
+//     if (c >= '0' && c <= '9') {
+//         return c - '0';
+//     } else if (c >= 'a' && c <= 'f') {
+//         return c - 'a' + 10;
+//     } else if (c >= 'A' && c <= 'F') {
+//         return c - 'A' + 10;
+//     } else {
+//         return -1;
+//     }
+// }
+
+// char* hex_encode(const unsigned char* data, size_t input_length, size_t* output_length) {
+//   size_t hex_string_size = input_length * 2 + 1;
+//   char *encoded_data = malloc(hex_string_size);
+
+//   for (size_t i = 0; i < input_length; i++) {
+//       snprintf(encoded_data + (i * 2), hex_string_size - (i * 2), "%02x", data[i]);
+//   }
+//   encoded_data[hex_string_size - 1] = '\0';
+
+//   printf("encoded_data: %s hex_string_size: %ld input_length: %ld \n", encoded_data, hex_string_size, input_length);
+
+//   *output_length = hex_string_size - 1;
+
+//   return encoded_data;
+// }
+
+// unsigned char* hex_decode(const char* data, size_t input_length, size_t* output_length) {
+
+//   if (input_length % 2 != 0) {
+//       *output_length = 0;
+//       return NULL;
+//   }
+
+//   size_t decoded_data_size = input_length / 2;
+//   unsigned char *decoded_data = malloc(decoded_data_size);
+
+//   for (size_t i = 0; i < decoded_data_size; i++) {
+//       int hi = hex_to_int(data[i * 2]);
+//       int lo = hex_to_int(data[i * 2 + 1]);
+//       if (hi == -1 || lo == -1) {
+//           *output_length = 0;
+//           return NULL;
+//       }
+//       decoded_data[i] = (unsigned char)((hi << 4) | lo);
+//   }
+
+//   *output_length = decoded_data_size;
+
+//   return decoded_data;
+// }
+
+
+// u32 __attribute__((hot))
+// write_to_testcase(afl_state_t *afl, void **mem, u32 len, u32 fix) {
+
+//   if (unlikely(afl->custom_mutators_count)) {
+
+//     ssize_t new_size = len;
+//     u8     *new_mem = *mem;
+//     u8     *new_buf = NULL;
+
+//     u8 min_length = new_mem[2];
+//     u8 max_length = new_mem[3];
+
+//     //printf("Fuzz seed min length: %d \n", min_length);
+//     //printf("Fuzz seed max length: %d \n", max_length);
+
+//     if (unlikely(new_size < min_length)) {
+
+//       return 0;
+
+//     } else if (unlikely(new_size > max_length)) {
+
+//       // new_size = max_length;
+
+//     }
+
+
+//     printf("len: %d new_size: %d max_length: %d \n", len, new_size, max_length);
+
+//     // Call python script to postprocess 
+//     char command[1024];
+//     char* encoded_buf = hex_encode(new_mem, new_size, &new_size);
+//     snprintf(command, sizeof(command), "python3 /home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/example.py %s", encoded_buf);
+//     free(encoded_buf);
+
+//     // Open a pipe to the command and read its output
+//     FILE *fp = popen(command, "r");
+//     if (fp == NULL) {
+//         perror("Error opening pipe to post-processor");
+//         return 0;
+//     }
+
+//     // Read the output of the command into a buffer
+//     char output_buf[1024];
+//     size_t output_len = fread(output_buf, 1, sizeof(output_buf), fp);
+
+//     // Close the pipe
+//     int status = pclose(fp);
+//     if (status == -1) {
+//         perror("Error closing pipe to command");
+//         return 0;
+//     } else if (WIFEXITED(status)) {
+//         if (WEXITSTATUS(status) != 0) {
+//             fprintf(stderr, "Command %s exited with non-zero status %d\n", command, WEXITSTATUS(status));
+//             return 0;
+//         }
+//     } else if (WIFSIGNALED(status)) {
+//         fprintf(stderr, "Command killed by signal %d\n", WTERMSIG(status));
+//         return 0;
+//     } else {
+//         fprintf(stderr, "Command terminated abnormally\n");
+//         return 0;
+//     }
+
+//     if (output_len == sizeof(output_buf)) {
+//         fprintf(stderr, "Output buffer too small for command output\n");
+//         return 0;
+//     } else if (output_len == 0) {
+//         fprintf(stderr, "Command produced no output\n");
+//         return 0;
+//     } else {
+//         // We assume we read the hex string from stdout, so we need to add a null terminator
+//         output_buf[output_len] = '\0';
+//     }
+
+//     // Decode the output from base64 and store it in new_buf (remember to free it later)
+//     new_buf = hex_decode(output_buf, output_len, &new_size);
+
+//     // Display a success message
+//     printf("Successfully post-processed data with new size: %d and buffer: %p\n", new_size, new_buf);
+
+//     // Do something with new_buf
+
+//     if (unlikely(!new_buf || new_size <= 0)) {
+
+//       new_size = 0;
+//       new_buf = new_mem;
+//       // FATAL("Custom_post_process failed (ret: %lu)", (long
+//       // unsigned)new_size);
+
+//     } else {
+
+//       new_mem = new_buf;
+//       write_buffer_to_file(new_mem, new_size);
+
+//     }
+
+    
+
+
+
+//     // LIST_FOREACH(&afl->custom_mutator_list, struct custom_mutator, {
+
+//     //   if (el->afl_custom_post_process) {
+
+//     //     new_size =
+//     //         el->afl_custom_post_process(el->data, new_mem, new_size, &new_buf);
+
+//     //     if (unlikely(!new_buf || new_size <= 0)) {
+
+//     //       new_size = 0;
+//     //       new_buf = new_mem;
+//     //       // FATAL("Custom_post_process failed (ret: %lu)", (long
+//     //       // unsigned)new_size);
+
+//     //     } else {
+
+//     //       new_mem = new_buf;
+
+//     //     }
+
+//     //   }
+
+//     // });
+
+//     if (unlikely(!new_size)) {
+
+//       // perform dummy runs (fix = 1), but skip all others
+//       if (fix) {
+
+//         new_size = len;
+
+//       } else {
+
+//         return 0;
+
+//       }
+
+//     }
+
+//     if (unlikely(new_size < afl->min_length && !fix)) {
+
+//       new_size = afl->min_length;
+
+//     } else if (unlikely(new_size > afl->max_length)) {
+
+//       new_size = afl->max_length;
+
+//     }
+
+//     /* 
+//     I will be making some changes here so that the buffer returned from the postprocessor
+//     is not propagated back to the calling function.
+//     1. If the postprocessor returns a buffer, the returned buffer will be written to the file.
+//     2. The original buffer wont be updated and the original length would be returned.
+//      */
+
+//     // if (new_mem != *mem) { *mem = new_mem; }
+
+//     /* everything as planned. use the potentially new data. */
+//     afl_fsrv_write_to_testcase(&afl->fsrv, new_mem, new_size);
+//     //len = new_size;
+
+//     // Free the memory used by new_buf
+//     free(new_buf);
+
+
+//   } else {
+
+//     if (unlikely(len < afl->min_length && !fix)) {
+
+//       len = afl->min_length;
+
+//     } else if (unlikely(len > afl->max_length)) {
+
+//       len = afl->max_length;
+
+//     }
+
+//     /* boring uncustom. */
+//     afl_fsrv_write_to_testcase(&afl->fsrv, *mem, len);
+
+//   }
+
+// #ifdef _AFL_DOCUMENT_MUTATIONS
+//   s32  doc_fd;
+//   char fn[PATH_MAX];
+//   snprintf(fn, PATH_MAX, "%s/mutations/%09u:%s", afl->out_dir,
+//            afl->document_counter++,
+//            describe_op(afl, 0, NAME_MAX - strlen("000000000:")));
+
+//   if ((doc_fd = open(fn, O_WRONLY | O_CREAT | O_TRUNC, DEFAULT_PERMISSION)) >=
+//       0) {
+
+//     if (write(doc_fd, *mem, len) != len)
+//       PFATAL("write to mutation file failed: %s", fn);
+//     close(doc_fd);
+
+//   }
+
+// #endif
+
+//   return len;
+
+// }
+
+
+
 /* Write modified data to file for testing. If afl->fsrv.out_file is set, the
    old file is unlinked and a new one is created. Otherwise, afl->fsrv.out_fd is
    rewound and truncated.

@@ -458,6 +458,11 @@ u8 fuzz_one_original(afl_state_t *afl) {
   orig_in = in_buf = queue_testcase_get(afl, afl->queue_cur);
   len = afl->queue_cur->len;
 
+  if (len < 5) {
+    // Each seed should contain 4 meta data bytes
+    return 1;
+  }
+
   out_buf = afl_realloc(AFL_BUF_PARAM(out), len);
   if (unlikely(!out_buf)) { PFATAL("alloc"); }
 
@@ -534,6 +539,12 @@ u8 fuzz_one_original(afl_state_t *afl) {
   }
 
   memcpy(out_buf, in_buf, len);
+ 
+  // Bias fuzzing on data segment of operand
+
+  out_buf += 4;
+  afl->out_buf_offset = 4;
+
 
   /*********************
    * PERFORMANCE SCORE *
@@ -3119,7 +3130,8 @@ static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
   orig_in = in_buf = queue_testcase_get(afl, afl->queue_cur);
   len = afl->queue_cur->len;
 
-  out_buf = afl_realloc(AFL_BUF_PARAM(out), len);
+  // Adding 4 to len to accommodate the meta data
+  out_buf = afl_realloc(AFL_BUF_PARAM(out), len+4);
   if (unlikely(!out_buf)) { PFATAL("alloc"); }
 
   afl->subseq_tmouts = 0;

@@ -1093,7 +1093,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
       char tun_name[6];
 
       /* Connect to the device */
-      strcpy(tun_name, "tap0");
+      strcpy(tun_name, "tap1");
       int tun_fd = tun_alloc(tun_name, IFF_TAP | IFF_NO_PI);  /* tun interface */
 
       if(tun_fd < 0){
@@ -1694,11 +1694,11 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
   if (pd_pid==0) { /* child process */
 
       /* open /dev/null for writing */
-      // int fd = open("/dev/null", O_WRONLY);
+      int fd = open("/dev/null", O_WRONLY);
 
-      // dup2(fd, 1);    /* make stdout a copy of fd (> /dev/null) */
-      // dup2(fd, 2);    /* ...and same with stderr */
-      // close(fd);      /* close fd */
+      dup2(fd, 1);    /* make stdout a copy of fd (> /dev/null) */
+      dup2(fd, 2);    /* ...and same with stderr */
+      close(fd);      /* close fd */
 
       /* stdout and stderr now write to /dev/null */
       /* ready to call exec */
@@ -1709,8 +1709,23 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
       "--so_filename=/home/pamusuo/research/rtos-fuzzing/rtos-bridge/libfreertos-bridge.so",
       "--fm_filename=/home/pamusuo/research/rtos-fuzzing/packet-mutation/libmutation-interface.so",
       "--local_ip=125.0.75.0",
+      "--remote_ip=125.0.75.20",
+      "--connect_port=8765",
+      "--bind_port=5678",
+      "--is_anyip",
       "--non_fatal=packet",
       "--tolerance_usecs=1000000", pd_script, NULL};
+
+      // char *argv[]={"/home/pamusuo/research/ampaschal-packetdrill/gtests/net/packetdrill/packetdrill",
+      // "--so_filename=/home/pamusuo/research/rtos-fuzzing/rtos-bridge/libfreertos-bridge.so",
+      // "--fm_filename=/home/pamusuo/research/rtos-fuzzing/packet-mutation/libmutation-interface.so",
+      // "--local_ip=fd00::302:304:506:708",
+      // "--bind_port=5678",
+      // "--connect_port=8765",
+      // "--ip_version=ipv6",
+      // "--is_anyip",
+      // "--non_fatal=packet",
+      // "--tolerance_usecs=1000000", pd_script, NULL};
 
       if (fsrv->pd_tap_fd > 0) {
         printf("Using env variables to invoke packetdrill...\n");
@@ -1730,36 +1745,6 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
       exit(127); /* only if execv fails */
   }
 
-  /* 
-  pid_t pd_pid = fork();
-  if (pd_pid==0) { 
-
-    pd_pid = fork();
-
-    if (pd_pid == 0) {
-
-      const char *pd_script = fsrv->out_file;
-    
-      char *argv[]={"/home/pamusuo/research/ampaschal-packetdrill/gtests/net/packetdrill/packetdrill",
-      "--so_filename=/home/pamusuo/research/rtos-fuzzing/rtos-bridge/libfreertos-bridge.so",
-      "--fm_filename=/home/pamusuo/research/rtos-fuzzing/packet-mutation/libmutation-interface.so",
-      "--local_ip=125.0.75.0",
-      "--non_fatal=packet",
-      "--tolerance_usecs=1000000", pd_script, NULL};
-      res = execv("/home/pamusuo/research/ampaschal-packetdrill/gtests/net/packetdrill/packetdrill", argv);
-      if (res != 0) {
-        printf("An error occurred executing with errno %d\n", errno);
-      }
-      exit(127); 
-    } else {
-      // Send the pid to parent
-      exit(0);
-    }
-
-      
-  }
-   */
-
   fsrv->pd_pid = pd_pid;
 
   restart_read:
@@ -1772,6 +1757,7 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
     getitimer(ITIMER_REAL, &it);
     exec_ms = (u64) timeout - (it.it_value.tv_sec * 1000 +
                               it.it_value.tv_usec / 1000);
+
 
   } else if (unlikely(res == -1 && errno == EINTR)) {
 

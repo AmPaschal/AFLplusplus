@@ -1,0 +1,7 @@
+    0 socket(..., SOCK_DGRAM, IPPROTO_UDP) = 3
+    +0 bind(3, ..., ...) = 0
+   +0 sendto(3, ..., 20, MSG_CONFIRM, ..., ...) = 20
+   +0 > udp (20)
+   +0 < udp (1)
+   +0 < udp (0) 
+   +0 < udp (30)

@@ -21,9 +21,11 @@ import struct
 import re
 import sys
 import os
+import binascii
 
 
 iter_index = 0
+debug = 0
 
 def init(seed):
     """
@@ -38,6 +40,10 @@ def init(seed):
 def deinit():
     pass
 
+def debug_print(msg):
+    if debug:
+        print(msg)
+
 def get_pd_commands_from_script(filename):
     
     try:
@@ -49,7 +55,7 @@ def get_pd_commands_from_script(filename):
             return pruned_commands;
 
     except:
-        print("Exception while opening the file");
+        debug_print("Exception while opening the file");
         return [];
 
 tcp_fields = [
@@ -171,7 +177,7 @@ def generate_insert_tcp_option(buf, current_counter):
     option_values = buf[current_counter: current_counter + option_len]
     current_counter += option_len
 
-    #print(f"option_kind: {option_kind} \n option_len: {option_len} \n option_values: {option_values}")
+    #debug_print(f"option_kind: {option_kind} \n option_len: {option_len} \n option_values: {option_values}")
 
     option_kind_hex = "{:02x}".format(option_kind)
     option_len_hex = "{:02x}".format(option_len) 
@@ -193,7 +199,7 @@ def generate_insert_IPv4_option(buf, current_counter):
 
     option_len_value = option_len + 2
 
-    #print(f"option_kind: {option_kind} \n option_len: {option_len_value} \n option_values: {option_values}")
+    #debug_print(f"option_kind: {option_kind} \n option_len: {option_len_value} \n option_values: {option_values}")
 
     option_kind_hex = "{:02x}".format(option_kind)
     option_len_hex = "{:02x}".format(option_len_value) 
@@ -237,17 +243,26 @@ udp_states = [
 ]
 
 opcodes = [
-    (0, "INSERT_MSS", "ins tcp mss", True), 
-    (1, "INSERT_IP_OPTION", "ins ipv4 20", True), 
-    (2, "REPLACE_IPV4_HEADER_LENGTH", "rep ipv4 version_ihl", True), 
-    (3, "REPLACE_TCP_HEADER_LENGTH", "rep tcp tcp_hdr_len", True),
-    (4, "TRUN_TCP_HEADER", "trun tcp 0", False),
-    (5, "REPLACE_IPV4_SOURCE_ADDR", "rep ipv4 src_ip", True)
-    ]
+(0, "REP_TCP_SEQ_NUM", "rep tcp seq_num", True),
+(1, "REP_TCP_ACK_NUM", "rep tcp ack_num", True),
+(2, "INS_TCP_OPTION", "ins tcp 20", True),
+(3, "REP_TCP_FLAGS", "rep tcp flags", True),
+(4, "REP_TCP_WIN_SIZE", "rep tcp win_size", True),
+(5, "REP_TCP_SRC_PORT", "rep tcp src_port", True),
+(6, "REP_TCP_DEST_PORT", "rep tcp dest_port", True),
+(7, "REP_TCP_HEADER_LENGTH", "rep tcp tcp_hdr_len", True),
+(8, "REP_IPV4_VERSION_IHL", "rep ipv4 version_ihl", True),
+(9, "REP_IPV4_DSCP_ECN", "rep ipv4 dscp_esn", True),
+(10, "REP_IPV4_TOT_LEN", "rep ipv4 tot_len", True),
+(11, "REP_IPV4_SOURCE_ADDR", "rep ipv4 src_ip", True),
+(12, "REP_IPV4_DEST_ADDR", "rep ipv4 dest_ip", True),
+(13, "INS_IP_OPTION", "ins ipv4 20", True),
+(14, "TRUN_TCP_HEADER", "trun tcp 0", True)
+]
 
 def decode_instruction(bytes_: bytes):
     opcode = struct.unpack("!B", bytes_[:1])[0] % len(opcodes)
-    print(f"opcode {opcode}")
+    debug_print(f"opcode {opcode}")
     opcode_found = False
     for i, op in enumerate(opcodes):
         if op[0] == opcode:
@@ -261,7 +276,7 @@ def decode_instruction(bytes_: bytes):
     if op[3] == True:
         value = bytes_[4:].hex().upper()
         if len(value) == 0:
-            print(f"invalid value: {bytes_.hex().upper()}")
+            debug_print(f"invalid value: {bytes_.hex().upper()}")
             return "" 
         fuzz_inst = "{" + op[2] + " " + "0x"+value + "}"
     else:
@@ -288,7 +303,7 @@ def post_process(buf):
     if (len(buf) < 4):
         return bytes("", "utf-8");
 
-    # print(f"Fuzz iteration {iter_index}")
+    # debug_print(f"Fuzz iteration {iter_index}")
     
     state_idx_to_fuzz = buf[1] % len(tcp_states)
 
@@ -297,8 +312,8 @@ def post_process(buf):
 
     pd_commands = get_pd_commands_from_script(state_to_fuzz[1]);
 
-    print(f"STate to fuzz: {state_to_fuzz}")
-    # print(f"Length of list: {len(pd_commands)}")
+    debug_print(f"STate to fuzz: {state_to_fuzz}")
+    # debug_print(f"Length of list: {len(pd_commands)}")
 
     fuzz_index = state_to_fuzz[2] - 1
     
@@ -321,8 +336,8 @@ def post_process(buf):
     if (inst == ""):
         return bytes("", "utf-8")
     else:
-        print(f"Fuzz Instruction: {inst}")
-        print(f"Script id: {state_idx_to_fuzz} min_length: {buf[2]} max_length: {buf[3]}")
+        debug_print(f"Fuzz Instruction: {inst}")
+        debug_print(f"Script id: {state_idx_to_fuzz} min_length: {buf[2]} max_length: {buf[3]}")
         fuzz_instruction = pd_command.strip() + inst + '\n';
         updated_commands.append(fuzz_instruction);
 
@@ -347,20 +362,32 @@ def post_process(buf):
 
 if __name__ == "__main__":
 
-    # Check if the user has provided two file paths
-    if len(sys.argv) != 3:
+    # Check if the user has provided two file paths or a base64 string
+    if len(sys.argv) == 3:
+        # Get the file paths from the command line arguments
+        src_path = sys.argv[1]
+        dest_folder_path = sys.argv[2]
+
+        # Open the source file for reading
+        with open(src_path, "rb") as src_file:
+            # Read the contents of the source file
+            src_data = src_file.read()
+
+    elif len(sys.argv) == 2:
+        # Get the base64 string from the command line argument
+        src_base64 = sys.argv[1]
+
+        # Decode the base64 string into a bytearray
+        try:
+            src_data = binascii.unhexlify(src_base64)
+        except:
+            print(f"Error: invalid hex string {src_base64}")
+            exit(1)
+
+    else:
         # If not, display an error message and exit
-        print("Error: please provide two file paths")
+        print("Error: please provide either two file paths or a base64 string")
         exit(1)
-
-    # Get the file paths from the command line arguments
-    src_path = sys.argv[1]
-    dest_folder_path = sys.argv[2]
-
-    # Open the source file for reading
-    with open(src_path, "rb") as src_file:
-        # Read the contents of the source file
-        src_data = src_file.read()
 
     processed_data = post_process(src_data)
 
@@ -368,21 +395,29 @@ if __name__ == "__main__":
         print("Post process retuned empty string")
         exit(1)
 
-    file_name = os.path.basename(src_path)
-    dest_file_name = os.path.join(dest_folder_path, file_name + ".pd")
+    if len(sys.argv) == 3:
+        file_name = os.path.basename(src_path)
+        dest_file_name = os.path.join(dest_folder_path, file_name + ".pd")
 
-    # Open the destination file for writing
-    with open(dest_file_name, "w") as dest_file:
-        # Write the contents of the source file to the destination file
-        dest_file.write(processed_data.decode("utf-8"))
+        # Open the destination file for writing
+        with open(dest_file_name, "w") as dest_file:
+            # Write the contents of the source file to the destination file
+            dest_file.write(processed_data.decode("utf-8"))
 
-    # Display a success message
-    print(f"Successfully written post-processed data to {dest_file_name}")
+        # Display a success message
+        debug_print(f"Successfully written post-processed data to {dest_file_name}")
+
+    elif len(sys.argv) == 2:
+        # Encode the processed data as base64 and print to stdout
+        print(binascii.hexlify(processed_data).decode("utf-8"))
+
+
+
 
     """ buf = b"042af4"
     
     current_counter, inst = generate_truncate_tcp_header_inst(buf, 0)
 
-    print(f"current counter: {current_counter}")
-    print("instruction: " + inst) """
+    debug_print(f"current counter: {current_counter}")
+    debug_print("instruction: " + inst) """
 
