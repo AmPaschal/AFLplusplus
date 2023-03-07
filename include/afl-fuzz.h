@@ -762,6 +762,13 @@ typedef struct afl_state {
    * is too large) */
   struct queue_entry **q_testcase_cache;
 
+  /* Pointer to file object used for communicating with post-processor */
+  u8 *file_in;
+  u8 *file_out;
+  u8 *mmap_in;
+  u8 *mmap_out;
+  char *seed_file;
+
 #ifdef INTROSPECTION
   char  mutation[8072];
   char  m_tmp[4096];

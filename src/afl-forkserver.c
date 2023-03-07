@@ -814,6 +814,22 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
             "print_suppressions=0",
             1);
 
+
+    /* Setup environment variable for child */
+    // if (getenv("TAP_INTERFACE_NAME")) {
+    //   const char *interface_name = getenv("TAP_INTERFACE_NAME");
+
+    //   setenv
+    // }
+
+    int res = setenv("ASAN_SYMBOLIZER_PATH", "/usr/bin/llvm-symbolizer-12", 1);
+
+    if (res != 0) {
+      printf("Setting ASAN_SYMBOLIZER_PATH failed with errno %d...\n", errno);
+    } else {
+      printf("Set ASAN_SYMBOLIZER_PATH successfully...\n");
+    }
+
     fsrv->init_child_func(fsrv, argv);
 
     /* Use a distinctive bitmap signature to tell the parent about execv()
@@ -1090,17 +1106,25 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
     if (getenv("PD_ENABLE_TAP")) {
       // Now we start our TAP interface and save the fd
-      char tun_name[6];
+      const char *interface_name = getenv("TAP_INTERFACE_NAME");
+
+      if (interface_name == NULL || strlen(interface_name) >= IFNAMSIZ) {
+          interface_name = "tap1";
+      }
+
+      char tun_name[strlen(interface_name) + 1];
 
       /* Connect to the device */
-      strcpy(tun_name, "tap1");
+      strncpy(tun_name, interface_name, strlen(interface_name));
+      tun_name[strlen(interface_name)] = '\0';
+
       int tun_fd = tun_alloc(tun_name, IFF_TAP | IFF_NO_PI);  /* tun interface */
 
       if(tun_fd < 0){
         printf("Allocating interface failed with code: %d and errno: %d...\n", tun_fd, errno);
         exit(-1);
       } else {
-        printf("Allocating tap interface succeeded with fd %d\n", tun_fd);
+        printf("Allocating tap interface %s succeeded with fd %d\n", tun_name, tun_fd);
         fsrv->pd_tap_fd = tun_fd;
       }
     }

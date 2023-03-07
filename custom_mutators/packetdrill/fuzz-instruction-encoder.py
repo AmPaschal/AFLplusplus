@@ -42,11 +42,11 @@ def translate_instruction(instruction: str):
     return struct.pack("!B", opcode) + script_bytes + min_value_bytes + max_value_bytes + value_bytes # concatenate opcode byte and value bytes
 
 def main():
-    with open("fuzz-instructions.txt", "r") as f:
+    with open("fuzz_in_vuln_instructions_2.txt", "r") as f:
         instructions = f.readlines()
 
     for instruction in instructions:
-        with open("/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/fuzz_in_2/instruction_"+str(instructions.index(instruction))+".bin", "wb") as f:
+        with open("/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/fuzz_in_vuln/instruction_"+str(instructions.index(instruction))+".bin", "wb") as f:
             bytes_ = translate_instruction(instruction)
             f.write(bytes_)
 

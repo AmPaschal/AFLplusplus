@@ -317,7 +317,7 @@ def post_process(buf):
 
     fuzz_index = state_to_fuzz[2] - 1
     
-    pd_command = pd_commands[fuzz_index]
+    pd_command = pd_commands[fuzz_index]    # Possible list index out of bounds
 
     #updated_commands = pd_commands[:-1]
     updated_commands = pd_commands[0: fuzz_index]

@@ -424,21 +424,62 @@ write_to_testcase(afl_state_t *afl, void **mem, u32 len, u32 fix) {
 
     // Write new_mem to file
 
-    FILE *fp = fopen("/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/original_fuzz_seed", "wb");
+    FILE *fp = (FILE *) afl->file_in;
+    if (ftruncate(fp->_fileno, 0) == -1) {
+        // handle error
+        printf("Truncating in file failed with errno %d...\n", errno);
+        return 0;
+    }
+    fseek(fp, 0, SEEK_SET);
     fwrite(new_mem, 1, new_size, fp);
-    fclose(fp);
+    // fclose(fp);
 
-    // Call python script to postprocess 
-    system("python3 /home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/example.py /home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/original_fuzz_seed /home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/");
+    // memcpy(afl->mmap_in, new_mem, new_size);
+
+    // Call python script to postprocess
+    const char* pd_command = "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/example.py";
+    const char* pd_path = "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/";
+
+
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "python3 %s %s %s", pd_command, afl->seed_file, pd_path);
+
+
+    system(cmd);
     
     // Read content of the postprocessed file to new_buf
-    FILE *fp2 = fopen("/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/original_fuzz_seed.pd", "r");
+    FILE *fp2 = (FILE *) afl->file_out;
     fseek(fp2, 0, SEEK_END);
     new_size = ftell(fp2);
     fseek(fp2, 0, SEEK_SET);  /* same as rewind(f); */
     new_buf = malloc(new_size);
     fread(new_buf, new_size, 1, fp2);
-    fclose(fp2);
+
+     if (ftruncate(fp2->_fileno, 0) == -1) {
+        // handle error
+        printf("Truncating out file failed...\n");
+        return 0;
+    }
+    // fclose(fp2);
+
+    // struct stat st;
+
+    // // Get information about the file
+    // if (stat("/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/original_fuzz_seed.pd", &st) == -1) {
+    //     printf("Calling stat failed...\n");
+    //     exit(EXIT_FAILURE);
+    // }
+
+    // new_size = st.st_size;
+    // new_buf = malloc(new_size);
+    // memcpy(new_buf, afl->mmap_out, new_size);
+
+    // const int SIZE = 4096;
+
+    // // Reset the memory locations
+    // memset(afl->mmap_in, 0, SIZE);
+    // memset(afl->mmap_out, 0, SIZE);
+
 
     if (unlikely(!new_buf || new_size <= 0)) {
 
@@ -1375,6 +1416,7 @@ common_fuzz_stuff(afl_state_t *afl, u8 *out_buf, u32 len) {
   if (afl->out_buf_offset > 0) {
     // Rollback out_buf pointer to point to beginning of buffer
     out_buf -= afl->out_buf_offset;
+    len += afl->out_buf_offset;
   }
 
   if (len < 2) {
