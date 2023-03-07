@@ -76,7 +76,7 @@ static void fsrv_exec_child(afl_forkserver_t *fsrv, char **argv) {
 
 }
 
-/* Initializes the struct */
+/* Initializes the fsrv struct */
 
 void afl_fsrv_init(afl_forkserver_t *fsrv) {
 
