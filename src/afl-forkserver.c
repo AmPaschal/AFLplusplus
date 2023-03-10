@@ -54,6 +54,11 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 
+#define TAP 1
+#define TUN 2
+
+#define CONFIG_NET_INTERFACE TAP
+
 /**
  * The correct fds for reading and writing pipes
  */
@@ -1109,7 +1114,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
       const char *interface_name = getenv("TAP_INTERFACE_NAME");
 
       if (interface_name == NULL || strlen(interface_name) >= IFNAMSIZ) {
-          interface_name = "tap1";
+          interface_name = CONFIG_NET_INTERFACE == TAP ? "tap1" : "tun0";
       }
 
       char tun_name[strlen(interface_name) + 1];
@@ -1118,7 +1123,8 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
       strncpy(tun_name, interface_name, strlen(interface_name));
       tun_name[strlen(interface_name)] = '\0';
 
-      int tun_fd = tun_alloc(tun_name, IFF_TAP | IFF_NO_PI);  /* tun interface */
+      int interface_flag = CONFIG_NET_INTERFACE == TAP ? IFF_TAP : IFF_TUN;
+      int tun_fd = tun_alloc(tun_name, interface_flag | IFF_NO_PI);  /* tun interface */
 
       if(tun_fd < 0){
         printf("Allocating interface failed with code: %d and errno: %d...\n", tun_fd, errno);

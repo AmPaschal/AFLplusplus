@@ -422,19 +422,19 @@ write_to_testcase(afl_state_t *afl, void **mem, u32 len, u32 fix) {
 
     }
 
+
     // Write new_mem to file
 
-    FILE *fp = (FILE *) afl->file_in;
-    if (ftruncate(fp->_fileno, 0) == -1) {
-        // handle error
-        printf("Truncating in file failed with errno %d...\n", errno);
-        return 0;
-    }
-    fseek(fp, 0, SEEK_SET);
-    fwrite(new_mem, 1, new_size, fp);
-    // fclose(fp);
+    
 
-    // memcpy(afl->mmap_in, new_mem, new_size);
+    FILE *fp_in = fopen(afl->seed_file, "wb");
+
+    if (fp_in == NULL) {
+      printf("Error initializing post-processor input...\n");
+      exit(-1);
+    }
+    fwrite(new_mem, 1, new_size, fp_in);
+    fclose(fp_in);
 
     // Call python script to postprocess
     const char* pd_command = "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/example.py";
@@ -448,18 +448,14 @@ write_to_testcase(afl_state_t *afl, void **mem, u32 len, u32 fix) {
     system(cmd);
     
     // Read content of the postprocessed file to new_buf
-    FILE *fp2 = (FILE *) afl->file_out;
-    fseek(fp2, 0, SEEK_END);
-    new_size = ftell(fp2);
-    fseek(fp2, 0, SEEK_SET);  /* same as rewind(f); */
+    FILE *fp_out = fopen(afl->pd_script_file, "r");
+    fseek(fp_out, 0, SEEK_END);
+    new_size = ftell(fp_out);
+    fseek(fp_out, 0, SEEK_SET);  /* same as rewind(f); */
     new_buf = malloc(new_size);
-    fread(new_buf, new_size, 1, fp2);
+    fread(new_buf, new_size, 1, fp_out);
+    fclose(fp_out);
 
-     if (ftruncate(fp2->_fileno, 0) == -1) {
-        // handle error
-        printf("Truncating out file failed...\n");
-        return 0;
-    }
     // fclose(fp2);
 
     // struct stat st;

@@ -383,17 +383,14 @@ static int stricmp(char const *a, char const *b) {
 
 const int SIZE = 4096;
   
-void afl_mmap_deinit(afl_state_t *afl) {
-  /* Close file pointers used for post-processor IO */
+void afl_pp_file_deinit(afl_state_t *afl) {
+  /* Free pointers to post-processor file names */
 
-  munmap(afl->mmap_in, SIZE);
-  munmap(afl->mmap_out, SIZE);
-
-  fclose((FILE *) afl->file_in);
-  fclose((FILE *) afl->file_out);
+  free(afl->seed_file);
+  free(afl->pd_script_file);
 }
 
-void afl_mmap_init(afl_state_t *afl) {
+void afl_pp_file_init(afl_state_t *afl) {
 
   char *seed_file_template = "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/fuzz_seed";
   char *seed_file;
@@ -408,54 +405,15 @@ void afl_mmap_init(afl_state_t *afl) {
     seed_file = strdup(seed_file_template);
   }
 
-  FILE *fp_in = fopen(seed_file, "wb+");
-
-  if (fp_in == NULL) {
-    printf("Error initializing post-processor input...\n");
-    exit(-1);
-  }
-
-  // void *ptr_in = mmap(NULL, SIZE, PROT_WRITE, MAP_SHARED, fp_in->_fileno, 0);
-
-  // if (ptr_in == MAP_FAILED) {
-  //   printf("mmap_in failed with error %d\n", errno);
-  //   exit(1);
-  // } else {
-  //   printf("Mmap in completed...\n");
-  // }
 
   int pd_script_len = strlen(seed_file) + 4;
   char *pd_script_file = malloc(pd_script_len * sizeof(char));
   snprintf(pd_script_file, pd_script_len, "%s%s", seed_file, ".pd");
     
-  FILE *fp_out = fopen(pd_script_file, "w+");
 
-  if (fp_out == NULL) {
-    printf("Error initializing post-processor output...\n");
-    exit(-1);
-  }
-
-  // void *ptr_out = mmap(NULL, SIZE, PROT_READ, MAP_SHARED, fp_out->_fileno, 0);
-
-  // if (ptr_out == MAP_FAILED) {
-  //   printf("mmap_out failed with error %d\n", errno);
-  //   exit(1);
-  // } else {
-  //   printf("Mmap out completed...\n");
-  // }
-
-  // memset(ptr_in, 0, SIZE - 1);
-  // memset(ptr_out, 0, SIZE - 1);
-
-  afl->file_in = (u8 *) fp_in;
-  afl->file_out = (u8 *) fp_out;
   afl->seed_file = seed_file;
+  afl->pd_script_file = pd_script_file;
 
-  // afl->mmap_in = (u8 *) ptr_in;
-  // afl->mmap_out = (u8 *) ptr_out;
-
-  // printf("Mmap completed...\n");
-    
 }
 
 static void fasan_check_afl_preload(char *afl_preload) {
@@ -605,7 +563,7 @@ int main(int argc, char **argv_orig, char **envp) {
   afl->debug = debug;
   afl_fsrv_init(&afl->fsrv);
   if (debug) { afl->fsrv.debug = true; }
-  afl_mmap_init(afl);
+  afl_pp_file_init(afl);
   read_afl_environment(afl, envp);
   if (afl->shm.map_size) { afl->fsrv.map_size = afl->shm.map_size; }
   exit_1 = !!afl->afl_env.afl_bench_just_one;
@@ -2719,7 +2677,7 @@ stop_fuzzing:
   }
 
   afl_fsrv_deinit(&afl->fsrv);
-  afl_mmap_deinit(afl);
+  afl_pp_file_deinit(afl);
 
   /* remove tmpfile */
   if (afl->tmp_dir != NULL && !afl->in_place_resume && afl->fsrv.out_file) {

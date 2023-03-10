@@ -768,6 +768,7 @@ typedef struct afl_state {
   u8 *mmap_in;
   u8 *mmap_out;
   char *seed_file;
+  char *pd_script_file;
 
 #ifdef INTROSPECTION
   char  mutation[8072];
