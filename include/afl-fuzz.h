@@ -718,6 +718,9 @@ typedef struct afl_state {
 
   u8 *testcase_buf, *splicecase_buf;
 
+  /* Needed when we want to start mutations at a certain offset */
+  u8 out_buf_offset;
+
   u32 custom_mutators_count;
 
   struct custom_mutator *current_custom_fuzz;
@@ -758,6 +761,14 @@ typedef struct afl_state {
   /* Refs to each queue entry with cached testcase (for eviction, if cache_count
    * is too large) */
   struct queue_entry **q_testcase_cache;
+
+  /* Pointer to file object used for communicating with post-processor */
+  u8 *file_in;
+  u8 *file_out;
+  u8 *mmap_in;
+  u8 *mmap_out;
+  char *seed_file;
+  char *pd_script_file;
 
 #ifdef INTROSPECTION
   char  mutation[8072];

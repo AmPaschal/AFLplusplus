@@ -381,6 +381,41 @@ static int stricmp(char const *a, char const *b) {
 
 }
 
+const int SIZE = 4096;
+  
+void afl_pp_file_deinit(afl_state_t *afl) {
+  /* Free pointers to post-processor file names */
+
+  free(afl->seed_file);
+  free(afl->pd_script_file);
+}
+
+void afl_pp_file_init(afl_state_t *afl) {
+
+  char *seed_file_template = "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/fuzz_seed";
+  char *seed_file;
+
+  const char *interface_name = getenv("TAP_INTERFACE_NAME");
+
+  if (interface_name != NULL) {
+    int len = strlen(interface_name) + strlen(seed_file_template) + 2;
+    seed_file = malloc(len * sizeof(char));
+    snprintf(seed_file, len, "%s_%s", seed_file_template, interface_name);
+  } else {
+    seed_file = strdup(seed_file_template);
+  }
+
+
+  int pd_script_len = strlen(seed_file) + 4;
+  char *pd_script_file = malloc(pd_script_len * sizeof(char));
+  snprintf(pd_script_file, pd_script_len, "%s%s", seed_file, ".pd");
+    
+
+  afl->seed_file = seed_file;
+  afl->pd_script_file = pd_script_file;
+
+}
+
 static void fasan_check_afl_preload(char *afl_preload) {
 
   char   first_preload[PATH_MAX + 1] = {0};
@@ -528,6 +563,7 @@ int main(int argc, char **argv_orig, char **envp) {
   afl->debug = debug;
   afl_fsrv_init(&afl->fsrv);
   if (debug) { afl->fsrv.debug = true; }
+  afl_pp_file_init(afl);
   read_afl_environment(afl, envp);
   if (afl->shm.map_size) { afl->fsrv.map_size = afl->shm.map_size; }
   exit_1 = !!afl->afl_env.afl_bench_just_one;
@@ -2641,6 +2677,7 @@ stop_fuzzing:
   }
 
   afl_fsrv_deinit(&afl->fsrv);
+  afl_pp_file_deinit(afl);
 
   /* remove tmpfile */
   if (afl->tmp_dir != NULL && !afl->in_place_resume && afl->fsrv.out_file) {

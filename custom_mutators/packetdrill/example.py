@@ -17,10 +17,15 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 import calendar
 import time
 import random
+import struct
 import re
 import sys
 import os
+import binascii
 
+
+iter_index = 0
+debug = 0
 
 def init(seed):
     """
@@ -35,18 +40,22 @@ def init(seed):
 def deinit():
     pass
 
-def get_pd_commands_from_script(filename):
+def debug_print(msg):
+    if debug:
+        print(msg)
 
+def get_pd_commands_from_script(filename):
+    
     try:
         with open(filename, "r") as pd_script:
             pd_commands = pd_script.readlines();
-
+            
             pruned_commands = [command for command in pd_commands if (command.strip() != "" and not command.startswith("//"))];
 
             return pruned_commands;
 
     except:
-        print("Exception while opening the file");
+        debug_print("Exception while opening the file");
         return [];
 
 tcp_fields = [
@@ -168,7 +177,7 @@ def generate_insert_tcp_option(buf, current_counter):
     option_values = buf[current_counter: current_counter + option_len]
     current_counter += option_len
 
-    #print(f"option_kind: {option_kind} \n option_len: {option_len} \n option_values: {option_values}")
+    #debug_print(f"option_kind: {option_kind} \n option_len: {option_len} \n option_values: {option_values}")
 
     option_kind_hex = "{:02x}".format(option_kind)
     option_len_hex = "{:02x}".format(option_len) 
@@ -190,7 +199,7 @@ def generate_insert_IPv4_option(buf, current_counter):
 
     option_len_value = option_len + 2
 
-    #print(f"option_kind: {option_kind} \n option_len: {option_len_value} \n option_values: {option_values}")
+    #debug_print(f"option_kind: {option_kind} \n option_len: {option_len_value} \n option_values: {option_values}")
 
     option_kind_hex = "{:02x}".format(option_kind)
     option_len_hex = "{:02x}".format(option_len_value) 
@@ -217,6 +226,67 @@ def generate_delete_inst(buf, current_counter):
     return current_counter, f"trun tcp {delete_point} {num_truncate_bytes}";
 
 
+tcp_states = [
+    ("ESTABLISHED", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-established.pkt", 9),
+    ("ESTABLISHED-OPTION", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-established-option.pkt", 9),
+    ("LISTEN", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-listen.pkt", 5),
+    ("SEND", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-send.pkt", 11),
+    ("SYN_RECEIVED", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-syn-rcvd.pkt", 8),
+    ("SYN_SENT", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-syn-sent.pkt", 4),
+    ("LAST_ACK", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-last-ack.pkt", 10),
+    ("FIN_WAIT", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/templates/fuzz-template-tcp-fin-wait.pkt", 12)
+]
+
+udp_states = [
+    ("SOCKET_OPEN", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/udp_templates/fuzz_template_socket_open.pkt", 5),
+    ("SOCKET_CLOSED", "/home/pamusuo/research/rtos-fuzzing/AFLplusplus/custom_mutators/packetdrill/udp_templates/fuzz_template_socket_closed.pkt", 1)
+]
+
+opcodes = [
+(0, "REP_TCP_SEQ_NUM", "rep tcp seq_num", True),
+(1, "REP_TCP_ACK_NUM", "rep tcp ack_num", True),
+(2, "INS_TCP_OPTION", "ins tcp 20", True),
+(3, "REP_TCP_FLAGS", "rep tcp flags", True),
+(4, "REP_TCP_WIN_SIZE", "rep tcp win_size", True),
+(5, "REP_TCP_SRC_PORT", "rep tcp src_port", True),
+(6, "REP_TCP_DEST_PORT", "rep tcp dest_port", True),
+(7, "REP_TCP_HEADER_LENGTH", "rep tcp tcp_hdr_len", True),
+(8, "REP_IPV4_VERSION_IHL", "rep ipv4 version_ihl", True),
+(9, "REP_IPV4_DSCP_ECN", "rep ipv4 dscp_esn", True),
+(10, "REP_IPV4_TOT_LEN", "rep ipv4 tot_len", True),
+(11, "REP_IPV4_SOURCE_ADDR", "rep ipv4 src_ip", True),
+(12, "REP_IPV4_DEST_ADDR", "rep ipv4 dest_ip", True),
+(13, "INS_IP_OPTION", "ins ipv4 20", True),
+(14, "TRUN_TCP_HEADER", "trun tcp 0", True)
+]
+
+def decode_instruction(bytes_: bytes):
+    opcode = struct.unpack("!B", bytes_[:1])[0] % len(opcodes)
+    debug_print(f"opcode {opcode}")
+    opcode_found = False
+    for i, op in enumerate(opcodes):
+        if op[0] == opcode:
+            opcode_found = True
+            break
+    
+    if opcode_found == False:
+        return ""
+    
+    fuzz_inst = ""
+    if op[3] == True:
+        value = bytes_[4:].hex().upper()
+        if len(value) == 0:
+            debug_print(f"invalid value: {bytes_.hex().upper()}")
+            return "" 
+        fuzz_inst = "{" + op[2] + " " + "0x"+value + "}"
+    else:
+        value_bytes = bytes_[4:].rjust(4, b'\x00')
+        value = int.from_bytes(value_bytes, byteorder='big')
+        fuzz_inst = "{" + op[2] + " " + str(value) + "}"
+    
+    return fuzz_inst
+
+
 def post_process(buf):
 
 #     Called just before the execution to write the test case in the format
@@ -228,84 +298,96 @@ def post_process(buf):
 #     @rtype: bytearray
 #     @return: The buffer containing the test case after
 
-    if (len(buf) < 5):
+    global iter_index
+
+    if (len(buf) < 4):
         return bytes("", "utf-8");
 
-    current_counter = 0;
-
-    pd_commands = get_pd_commands_from_script("/home/pamusuo/research/ampaschal-packetdrill/gtests/net/tcp/blocking/blocking-accept-fuzz-template.pkt");
+    # debug_print(f"Fuzz iteration {iter_index}")
     
-    first_byte = buf[current_counter];
+    state_idx_to_fuzz = buf[1] % len(tcp_states)
 
-    current_counter += 1;
+    state_to_fuzz = tcp_states[state_idx_to_fuzz]
+    iter_index = iter_index + 1
 
-    start_index = first_byte % len(pd_commands);
+    pd_commands = get_pd_commands_from_script(state_to_fuzz[1]);
 
-    updated_commands = pd_commands[0: start_index]
+    debug_print(f"STate to fuzz: {state_to_fuzz}")
+    # debug_print(f"Length of list: {len(pd_commands)}")
 
-    for i in range(start_index, len(pd_commands)):
+    fuzz_index = state_to_fuzz[2] - 1
+    
+    pd_command = pd_commands[fuzz_index]    # Possible list index out of bounds
 
-        pd_command = pd_commands[i];
+    #updated_commands = pd_commands[:-1]
+    updated_commands = pd_commands[0: fuzz_index]
 
-        inbound_match = re.search("\+\d*\.?\d* < [S|F|P|\.]", pd_command);
+    inbound_match = re.search("\+\d*\.?\d* < [S|F|P|\.]?", pd_command);
 
-        if (inbound_match is None or (len(buf) - current_counter) < 3):
-            updated_commands.append(pd_command);
-            continue;
+    if (inbound_match is None):
+        updated_commands.append(pd_command);
+        return bytes("", "utf-8")
 
-        control_byte = buf[current_counter];
+    try:
+        inst = decode_instruction(buf)
+    except:
+        return bytes("", "utf-8")
 
-        current_counter += 1;
+    if (inst == ""):
+        return bytes("", "utf-8")
+    else:
+        debug_print(f"Fuzz Instruction: {inst}")
+        debug_print(f"Script id: {state_idx_to_fuzz} min_length: {buf[2]} max_length: {buf[3]}")
+        fuzz_instruction = pd_command.strip() + inst + '\n';
+        updated_commands.append(fuzz_instruction);
 
-        control = control_byte % 4;
-
-        if control == 0:
-            (current_counter, inst) = generate_replace_tcp_inst(buf, current_counter);
-        elif control == 1:
-            (current_counter, inst) = generate_replace_ip_inst(buf, current_counter);
-        elif control == 2:
-            (current_counter, inst) = generate_insert_inst(buf, current_counter);
-        else:
-            (current_counter, inst) = generate_truncate_tcp_header_inst(buf, current_counter);
-
-        if (inst == ""):
-            updated_commands.append(pd_command);
-        else:
-            fuzz_instruction = pd_command.strip() + ' {' + inst + '}\n';
-            updated_commands.append(fuzz_instruction);
+    if (fuzz_index < len(pd_commands) - 1):
+        updated_commands.extend(pd_commands[fuzz_index + 1 :])
 
     updated_command_string = ''.join(updated_commands);
 
     updated_buf = bytearray(updated_command_string.encode());
 
-    """ timestamp = calendar.timegm(time.gmtime());
+    # timestamp = calendar.timegm(time.gmtime());
 
-    mutated_filename = f"afl-pd-{timestamp}.pkt"
+    # mutated_filename = f"afl-pd-{timestamp}.pkt"
 
-    with open(mutated_filename, "wb") as mutated_files:
-        mutated_files.write(updated_buf); """
+    # with open(mutated_filename, "wb") as mutated_files:
+    #     mutated_files.write(updated_buf); 
 
-    pd_command_string = ''.join(pd_commands);
+    # pd_command_string = ''.join(pd_commands);
 
-    return bytearray(updated_command_string.encode());
+    return updated_buf;
 
 
 if __name__ == "__main__":
 
-    # Check if the user has provided two file paths
-    if len(sys.argv) != 3:
+    # Check if the user has provided two file paths or a base64 string
+    if len(sys.argv) == 3:
+        # Get the file paths from the command line arguments
+        src_path = sys.argv[1]
+        dest_folder_path = sys.argv[2]
+
+        # Open the source file for reading
+        with open(src_path, "rb") as src_file:
+            # Read the contents of the source file
+            src_data = src_file.read()
+
+    elif len(sys.argv) == 2:
+        # Get the base64 string from the command line argument
+        src_base64 = sys.argv[1]
+
+        # Decode the base64 string into a bytearray
+        try:
+            src_data = binascii.unhexlify(src_base64)
+        except:
+            print(f"Error: invalid hex string {src_base64}")
+            exit(1)
+
+    else:
         # If not, display an error message and exit
-        print("Error: please provide two file paths")
+        print("Error: please provide either two file paths or a base64 string")
         exit(1)
-
-    # Get the file paths from the command line arguments
-    src_path = sys.argv[1]
-    dest_folder_path = sys.argv[2]
-
-    # Open the source file for reading
-    with open(src_path, "rb") as src_file:
-        # Read the contents of the source file
-        src_data = src_file.read()
 
     processed_data = post_process(src_data)
 
@@ -313,21 +395,29 @@ if __name__ == "__main__":
         print("Post process retuned empty string")
         exit(1)
 
-    file_name = os.path.basename(src_path)
-    dest_file_name = os.path.join(dest_folder_path, file_name + ".pd")
+    if len(sys.argv) == 3:
+        file_name = os.path.basename(src_path)
+        dest_file_name = os.path.join(dest_folder_path, file_name + ".pd")
 
-    # Open the destination file for writing
-    with open(dest_file_name, "w") as dest_file:
-        # Write the contents of the source file to the destination file
-        dest_file.write(processed_data.decode("utf-8"))
+        # Open the destination file for writing
+        with open(dest_file_name, "w") as dest_file:
+            # Write the contents of the source file to the destination file
+            dest_file.write(processed_data.decode("utf-8"))
 
-    # Display a success message
-    print(f"Successfully written post-processed data to {dest_file_name}")
+        # Display a success message
+        debug_print(f"Successfully written post-processed data to {dest_file_name}")
+
+    elif len(sys.argv) == 2:
+        # Encode the processed data as base64 and print to stdout
+        print(binascii.hexlify(processed_data).decode("utf-8"))
+
+
+
 
     """ buf = b"042af4"
     
     current_counter, inst = generate_truncate_tcp_header_inst(buf, 0)
 
-    print(f"current counter: {current_counter}")
-    print("instruction: " + inst) """
+    debug_print(f"current counter: {current_counter}")
+    debug_print("instruction: " + inst) """
 
